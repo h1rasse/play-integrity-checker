@@ -1,0 +1,18 @@
+{
+  "name": "play-integrity-checker-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Server-side Play Integrity token verifier for the demo checker.",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "NODE_ENV=test node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "google-auth-library": "^9.14.2"
+  }
+}
