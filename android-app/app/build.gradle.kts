@@ -7,12 +7,17 @@ android {
     namespace = "com.h1rasse.playintegritychecker"
     compileSdk = 35
 
+    buildFeatures {
+        buildConfig = true
+    }
+
     defaultConfig {
         applicationId = "com.h1rasse.playintegritychecker"
         minSdk = 23
         targetSdk = 35
         versionCode = 1
         versionName = "1.0.0"
+        buildConfigField("String", "BACKEND_BASE_URL", "\"${project.findProperty("backendBaseUrl") ?: "https://YOUR_BACKEND_HOST"}\"")
     }
 
     buildTypes {

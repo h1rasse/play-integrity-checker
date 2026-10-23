@@ -5,6 +5,7 @@ import { GoogleAuth } from "google-auth-library";
 const port = Number(process.env.PORT || 8080);
 const packageName = process.env.ANDROID_PACKAGE_NAME || "com.h1rasse.playintegritychecker";
 const mockMode = String(process.env.MOCK_MODE || "true").toLowerCase() === "true";
+const maxTokenAgeMs = Number(process.env.MAX_TOKEN_AGE_MS || 120_000);
 
 function sendJson(response, statusCode, body) {
   const payload = JSON.stringify(body, null, 2);
@@ -104,16 +105,36 @@ async function decodeIntegrityToken(input) {
   const requestDetails = tokenPayload?.requestDetails;
   const requestMatches = requestDetails?.requestPackageName === packageName &&
     requestDetails?.requestHash === input.requestHash;
+  const timestampMillis = Number(requestDetails?.timestampMillis);
+  const ageMs = Date.now() - timestampMillis;
+  const timestampFresh = Number.isFinite(timestampMillis) && ageMs >= 0 && ageMs <= maxTokenAgeMs;
+  const appRecognition = tokenPayload?.appIntegrity?.appRecognitionVerdict;
+  const licensing = tokenPayload?.accountDetails?.appLicensingVerdict;
+  const deviceLabels = tokenPayload?.deviceIntegrity?.deviceRecognitionVerdict || [];
+  const appRecognized = appRecognition === "PLAY_RECOGNIZED";
+  const licensed = licensing === "LICENSED";
+  const deviceEvaluated = deviceLabels.length > 0;
+  const warnings = [];
+  if (!requestMatches) warnings.push("Decoded request details do not match the expected package or request hash.");
+  if (!timestampFresh) warnings.push(`Token timestamp is outside the ${maxTokenAgeMs} ms freshness window.`);
+  if (!appRecognized) warnings.push(`Application recognition verdict is ${appRecognition || "missing"}.`);
+  if (!licensed) warnings.push(`Application licensing verdict is ${licensing || "missing"}.`);
+  if (!deviceEvaluated) warnings.push("No device recognition label was returned.");
   return {
     verificationMode: "google",
-    isValid: Boolean(requestMatches),
+    isValid: Boolean(requestMatches && timestampFresh && appRecognized && licensed && deviceEvaluated),
     requestMatches,
+    timestampFresh,
+    ageMs,
+    appRecognized,
+    licensed,
+    deviceEvaluated,
     requestDetails,
     appIntegrity: tokenPayload?.appIntegrity,
     accountDetails: tokenPayload?.accountDetails,
     deviceIntegrity: tokenPayload?.deviceIntegrity,
     environmentDetails: tokenPayload?.environmentDetails,
-    warnings: requestMatches ? [] : ["Decoded request details do not match the expected package or request hash."],
+    warnings,
   };
 }
 

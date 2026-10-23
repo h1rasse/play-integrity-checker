@@ -72,7 +72,11 @@ com.google.android.play:integrity:1.6.0
 
 Before requesting a real token, set `cloudProjectNumber` in `MainActivity.kt` to the numeric Google Cloud project number associated with the app. The sample then prepares a Standard Integrity token provider and requests a token with a SHA-256 request hash.
 
-The sample currently displays the returned opaque token metadata for demonstration. A production app should send the token and the server-controlled request context to the backend over HTTPS and should not treat client-side text as an authoritative verdict.
+The app sends the returned opaque token, request hash, and package name to `POST /api/verify` over the configured HTTPS backend URL. Build with the backend URL as a Gradle property:
+
+```bash
+gradle --no-daemon assembleDebug -PbackendBaseUrl=https://your-backend.example.com
+```
 
 ## Real Google verification
 
@@ -96,7 +100,7 @@ export GOOGLE_APPLICATION_CREDENTIALS=/secure/path/play-integrity-service-accoun
 npm start
 ```
 
-The backend calls Google's `decodeIntegrityToken` endpoint, then checks that the decoded package name and request hash match the expected values. This sample does not persist used challenges or implement a full user session. Add those controls before protecting a valuable action.
+The backend calls Google's `decodeIntegrityToken` endpoint, then checks that the decoded package name and request hash match, the token timestamp is fresh, the app is `PLAY_RECOGNIZED`, the account is `LICENSED`, and at least one device recognition label is present. This checker is intended for diagnostics. It does not persist used challenges or implement a full user session. Add those controls before protecting a valuable action.
 
 ## Security boundaries
 
@@ -119,6 +123,10 @@ The Android module can be built from Android Studio or with a configured Gradle 
 cd android-app
 ./gradlew assembleDebug
 ```
+
+## GitHub Actions build
+
+Every push to `main` and every pull request runs backend tests and builds a debug APK. The APK is published as the `play-integrity-checker-debug-apk` workflow artifact. The workflow uses a placeholder backend URL, so rebuild the artifact with `-PbackendBaseUrl=https://your-backend.example.com` before installing it for real checks.
 
 ## License
 
