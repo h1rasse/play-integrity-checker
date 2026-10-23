@@ -1,4 +1,5 @@
 import "dotenv/config";
+import crypto from "node:crypto";
 import http from "node:http";
 import { GoogleAuth } from "google-auth-library";
 
@@ -6,6 +7,19 @@ const port = Number(process.env.PORT || 8080);
 const packageName = process.env.ANDROID_PACKAGE_NAME || "com.h1rasse.playintegritychecker";
 const mockMode = String(process.env.MOCK_MODE || "true").toLowerCase() === "true";
 const maxTokenAgeMs = Number(process.env.MAX_TOKEN_AGE_MS || 120_000);
+const pendingNonces = new Map();
+
+function createNonce() {
+  const nonce = crypto.randomBytes(32).toString("base64url");
+  pendingNonces.set(nonce, Date.now());
+  return nonce;
+}
+
+function takeNonce(nonce) {
+  const createdAt = pendingNonces.get(nonce);
+  pendingNonces.delete(nonce);
+  return createdAt;
+}
 
 function sendJson(response, statusCode, body) {
   const payload = JSON.stringify(body, null, 2);
@@ -44,8 +58,8 @@ function validateInput(input) {
   if (typeof input.integrityToken !== "string" || input.integrityToken.length < 20) {
     return "integrityToken is required";
   }
-  if (typeof input.requestHash !== "string" || input.requestHash.length < 10) {
-    return "requestHash is required";
+  if (typeof input.nonce !== "string" || input.nonce.length < 16) {
+    return "nonce is required";
   }
   if (input.packageName !== undefined && input.packageName !== packageName) {
     return "packageName does not match server configuration";
@@ -59,7 +73,7 @@ function mockVerdict(input) {
     isValid: true,
     requestDetails: {
       requestPackageName: packageName,
-      requestHash: input.requestHash,
+      nonce: input.nonce,
       timestampMillis: String(Date.now()),
     },
     appIntegrity: {
@@ -104,7 +118,7 @@ async function decodeIntegrityToken(input) {
   const tokenPayload = payload.tokenPayloadExternal;
   const requestDetails = tokenPayload?.requestDetails;
   const requestMatches = requestDetails?.requestPackageName === packageName &&
-    requestDetails?.requestHash === input.requestHash;
+    requestDetails?.nonce === input.nonce;
   const timestampMillis = Number(requestDetails?.timestampMillis);
   const ageMs = Date.now() - timestampMillis;
   const timestampFresh = Number.isFinite(timestampMillis) && ageMs >= 0 && ageMs <= maxTokenAgeMs;
@@ -115,7 +129,7 @@ async function decodeIntegrityToken(input) {
   const licensed = licensing === "LICENSED";
   const deviceEvaluated = deviceLabels.length > 0;
   const warnings = [];
-  if (!requestMatches) warnings.push("Decoded request details do not match the expected package or request hash.");
+  if (!requestMatches) warnings.push("Decoded request details do not match the expected package or nonce.");
   if (!timestampFresh) warnings.push(`Token timestamp is outside the ${maxTokenAgeMs} ms freshness window.`);
   if (!appRecognized) warnings.push(`Application recognition verdict is ${appRecognition || "missing"}.`);
   if (!licensed) warnings.push(`Application licensing verdict is ${licensing || "missing"}.`);
@@ -146,6 +160,10 @@ async function handleVerify(request, response) {
       sendJson(response, 400, { error: validationError });
       return;
     }
+    if (!takeNonce(input.nonce)) {
+      sendJson(response, 409, { error: "Nonce is unknown, expired, or already used" });
+      return;
+    }
     if (mockMode) {
       sendJson(response, 200, mockVerdict(input));
       return;
@@ -161,6 +179,10 @@ async function handleVerify(request, response) {
 }
 
 const server = http.createServer((request, response) => {
+  if (request.method === "GET" && request.url === "/api/nonce") {
+    sendJson(response, 200, { nonce: createNonce(), expiresInMs: maxTokenAgeMs });
+    return;
+  }
   if (request.method === "GET" && request.url === "/health") {
     sendJson(response, 200, { status: "ok", verificationMode: mockMode ? "mock" : "google" });
     return;
